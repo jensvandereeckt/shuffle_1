@@ -17,10 +17,10 @@ WORKDIR /app
 # Clone je GitHub repo en haal alleen het script op
 RUN git clone https://github.com/jensvandereeckt/shuffle_1.git /app/code
 
-# Verplaats alleen countvotes.py
-RUN cp /app/code/countvotes.py .
+# Verplaats alleen count_votes.py
+RUN cp /app/code/count_votes.py .
 
 # Service account wordt later gemount
 
 # Run script
-CMD ["python", "countvotes.py"]
+CMD ["python", "count_votes.py"]
