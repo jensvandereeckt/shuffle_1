@@ -9,7 +9,11 @@ ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
 ENV PATH=$JAVA_HOME/bin:$PATH
 
 # Installeer Python libraries
-RUN pip install --no-cache-dir pyspark google-api-python-client google-auth google-auth-httplib2 google-auth-oauthlib
+RUN pip install --no-cache-dir pyspark \
+    google-api-python-client \
+    google-auth \
+    google-auth-httplib2 \
+    google-auth-oauthlib
 
 # Zet werkmap
 WORKDIR /app
