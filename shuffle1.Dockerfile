@@ -19,7 +19,8 @@ RUN pip install --no-cache-dir pyspark \
 WORKDIR /app
 
 # Clone je GitHub repo en haal alleen het script op
-RUN git clone https://github.com/jensvandereeckt/shuffle_1.git /app/code
+RUN rm -rf /app/code && \
+    git clone https://github.com/jensvandereeckt/shuffle_1.git /app/code
 
 # Verplaats alleen count_votes.py
 RUN cp /app/code/count_votes.py .
