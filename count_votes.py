@@ -20,7 +20,7 @@ TOTAL_RUNTIME = 120  # seconden
 COUNTRY_FILTER = ["be"]  # alleen deze landen verwerken
 
 # === LOGGING CONFIGURATIE ===
-LOG_FILENAME = f"vote_log_shuffle1{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+LOG_FILENAME = f"vote_log_shuffle1_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
 logging.basicConfig(
     filename=LOG_FILENAME,
     level=logging.INFO,
