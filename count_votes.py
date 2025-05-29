@@ -1,55 +1,53 @@
+import time
+import json
+import io
+import re
+from datetime import datetime
+from collections import defaultdict
 from pyspark.sql import SparkSession
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
-import io
-import json
-import re
 
-# ===== CONFIG =====
+# === CONFIG ===
 SERVICE_ACCOUNT_FILE = "service_account.json"
-INPUT_FOLDER_ID = "1dvuwVEPnCEiN7uK1lkTl8ZZL_lAta5kB"
-OUTPUT_FOLDER_ID = "1BqafbJaqYDzTe0en_IQnsPDZOGoHizql"
+INPUT_FOLDER_ID = "1dvuwVEPnCEiN7uK1lkTl8ZZL_lAta5kB"  # generated_votes folder
+OUTPUT_FOLDER_ID = "1BqafbJaqYDzTe0en_IQnsPDZOGoHizql"  # reduced_votes folder
+CHECK_INTERVAL = 15   # seconden
+TOTAL_RUNTIME = 120   # seconden
+COUNTRY_FILTER = ["be"]  # alleen deze landen verwerken 
+def init_spark():
+    return SparkSession.builder.appName("SongVoteCount").master("local[*]").getOrCreate()
 
-# ===== AUTHENTICATE TO GOOGLE DRIVE =====
-credentials = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE,
-    scopes=["https://www.googleapis.com/auth/drive"]
-)
-drive_service = build("drive", "v3", credentials=credentials)
+def authenticate_drive():
+    credentials = service_account.Credentials.from_service_account_file(
+        SERVICE_ACCOUNT_FILE, scopes=["https://www.googleapis.com/auth/drive"]
+    )
+    return build("drive", "v3", credentials=credentials)
 
-# ===== ZOEK STEMMINGSBESTANDEN =====
-print("🔍 Zoeken naar gegenereerde stemmingsbestanden in Drive-folder...")
-query = f"'{INPUT_FOLDER_ID}' in parents"
-results = drive_service.files().list(q=query, fields="files(id, name)").execute()
-items = results.get("files", [])
+def get_vote_files(drive_service, seen_files):
+    query = f"'{INPUT_FOLDER_ID}' in parents"
+    results = drive_service.files().list(q=query, fields="files(id, name)").execute()
+    items = results.get("files", [])
+    pattern = re.compile(r"^generated_votes_([a-z]{2})\.txt$")
+    filtered = []
+    for item in items:
+        match = pattern.match(item["name"])
+        if match:
+            country_code = match.group(1)
+            if country_code in COUNTRY_FILTER and item["name"] not in seen_files:
+                filtered.append((item["name"], item["id"]))
+    return filtered
 
-# Filter bestanden met patroon 'generated_votes_XX.txt'
-pattern = re.compile(r"^generated_votes_([a-z]{2})\.txt$")
-vote_files = [(item["name"], item["id"]) for item in items if pattern.match(item["name"])]
-
-if not vote_files:
-    raise Exception("❌ Geen gegenereerde stemmingsbestanden gevonden.")
-
-# Start Spark
-spark = SparkSession.builder \
-    .appName("SongVoteCount") \
-    .master("local[*]") \
-    .getOrCreate()
-
-# Verwerk elk stemmingsbestand
-for input_filename, file_id in vote_files:
-    print(f"⬇️ Downloaden van: {input_filename}")
+def download_file(drive_service, file_id, filename):
     request = drive_service.files().get_media(fileId=file_id)
-    with open(input_filename, "wb") as f:
+    with open(filename, "wb") as f:
         downloader = MediaIoBaseDownload(f, request)
         done = False
         while not done:
-            status, done = downloader.next_chunk()
-    print(f"✅ Bestand '{input_filename}' gedownload.")
+            _, done = downloader.next_chunk()
 
-    # ===== STEMMEN VERWERKEN MET SPARK =====
-    print("⚙️ Spark-telling wordt uitgevoerd...")
+def process_votes(spark, input_filename):
     rdd = spark.sparkContext.textFile(input_filename)
     mapped = rdd.map(lambda line: line.strip().split("\t")) \
                 .filter(lambda fields: len(fields) >= 3 and fields[2].isdigit()) \
@@ -62,31 +60,58 @@ for input_filename, file_id in vote_files:
         "country": x[0],
         "votes": [{"song_number": song, "count": count} for song, count in x[1]]
     }).collect()
+    return result
 
-    # ===== LOKAAL OPSLAAN =====
-    output_filename = input_filename.replace("generated_votes", "reduced_votes").replace(".txt", ".json")
-    with open(output_filename, "w") as f:
-        json.dump(result, f, indent=4)
-    print(f"💾 Resultaat opgeslagen in '{output_filename}'.")
-
-    # ===== DRIVE: OUDE VERSIE VERWIJDEREN =====
-    query = f"name='{output_filename}' and '{OUTPUT_FOLDER_ID}' in parents"
+def remove_old_drive_file(drive_service, filename):
+    query = f"name='{filename}' and '{OUTPUT_FOLDER_ID}' in parents"
     old_files = drive_service.files().list(q=query, fields="files(id)").execute().get("files", [])
     for file in old_files:
         drive_service.files().delete(fileId=file["id"]).execute()
-        print(f"🗑️ Oude versie '{output_filename}' verwijderd van Drive.")
 
-    # ===== UPLOAD NIEUWE VERSIE =====
-    file_metadata = {
-        "name": output_filename,
-        "parents": [OUTPUT_FOLDER_ID]
-    }
-    media = MediaFileUpload(output_filename, mimetype="application/json")
-    upload_response = drive_service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields="id"
-    ).execute()
-    print(f"📤 '{output_filename}' geüpload naar Drive (ID: {upload_response.get('id')})")
+def upload_to_drive(drive_service, filename):
+    metadata = {"name": filename, "parents": [OUTPUT_FOLDER_ID]}
+    media = MediaFileUpload(filename, mimetype="application/json")
+    return drive_service.files().create(body=metadata, media_body=media, fields="id").execute()
 
-print("🏁 Alle bestanden verwerkt.")
+def main():
+    spark = init_spark()
+    drive_service = authenticate_drive()
+    seen_files = set()
+    start_time = time.time()
+
+    print("🚀 Starten met controleren van stemmenbestanden voor 2 minuten (Ctrl+C om te stoppen)...")
+
+    try:
+        while time.time() - start_time < TOTAL_RUNTIME:
+            new_files = get_vote_files(drive_service, seen_files)
+
+            if new_files:
+                for filename, file_id in new_files:
+                    print(f"⬇️ Nieuw bestand gevonden: {filename}")
+                    download_file(drive_service, file_id, filename)
+                    seen_files.add(filename)
+
+                    print("⚙️ Verwerken met Spark...")
+                    result = process_votes(spark, filename)
+
+                    output_filename = filename.replace("generated_votes", "reduced_votes").replace(".txt", ".json")
+                    with open(output_filename, "w") as f:
+                        json.dump(result, f, indent=4)
+                    print(f"💾 '{output_filename}' lokaal opgeslagen.")
+
+                    remove_old_drive_file(drive_service, output_filename)
+                    response = upload_to_drive(drive_service, output_filename)
+                    print(f"📤 Geüpload naar Drive (ID: {response.get('id')})")
+            else:
+                print("⏳ Geen nieuwe bestanden gevonden, opnieuw proberen...")
+
+            time.sleep(CHECK_INTERVAL)
+
+    except KeyboardInterrupt:
+        print("🛑 Handmatig gestopt.")
+    finally:
+        spark.stop()
+        print("🏁 Spark afgesloten.")
+
+if __name__ == "__main__":
+    main()
