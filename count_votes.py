@@ -20,7 +20,7 @@ TOTAL_RUNTIME = 120  # seconden
 COUNTRY_FILTER = ["be"]  # alleen deze landen verwerken
 
 # === LOGGING CONFIGURATIE ===
-LOG_FILENAME = f"vote_log_shuffle1_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+LOG_FILENAME = f"vote_log_shuffle1{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
 logging.basicConfig(
     filename=LOG_FILENAME,
     level=logging.INFO,
@@ -100,7 +100,7 @@ def main():
     start_time = time.time()
 
     logging.info("Start stemverwerking voor 2 minuten.")
-    print("Starten met controleren van stemmenbestanden voor 2 minuten (Ctrl+C om te stoppen)...")
+    print("Starten met controleren van stemmenbestanden voor 2 minuten (Ctrl+C om te stoppen)...", flush=True)
 
     try:
         while time.time() - start_time < TOTAL_RUNTIME:
@@ -109,46 +109,47 @@ def main():
             if new_files:
                 for filename, file_id in new_files:
                     logging.info(f"Nieuw bestand gevonden: {filename}")
-                    print(f"Nieuw bestand gevonden: {filename}")
+                    print(f"Nieuw bestand gevonden: {filename}", flush=True)
                     download_file(drive_service, file_id, filename)
                     seen_files.add(filename)
 
                     logging.info("Verwerken met Spark...")
+                    print("Verwerken met Spark...", flush=True)
                     result = process_votes(spark, filename)
 
                     output_filename = filename.replace("generated_votes", "reduced_votes").replace(".txt", ".json")
                     with open(output_filename, "w") as f:
                         json.dump(result, f, indent=4)
                     logging.info(f"{output_filename} lokaal opgeslagen.")
-                    print(f"'{output_filename}' lokaal opgeslagen.")
+                    print(f"'{output_filename}' lokaal opgeslagen.", flush=True)
 
                     remove_old_drive_file(drive_service, output_filename)
                     response = upload_to_drive(drive_service, output_filename, OUTPUT_FOLDER_ID)
                     logging.info(f"Upload voltooid naar Drive (ID: {response.get('id')})")
-                    print(f"Geüpload naar Drive (ID: {response.get('id')})")
+                    print(f"Geüpload naar Drive (ID: {response.get('id')})", flush=True)
             else:
                 logging.info("Geen nieuwe bestanden gevonden.")
-                print("Geen nieuwe bestanden gevonden, opnieuw proberen...")
+                print("Geen nieuwe bestanden gevonden, opnieuw proberen...", flush=True)
 
             time.sleep(CHECK_INTERVAL)
 
     except KeyboardInterrupt:
         logging.warning("Handmatig gestopt door gebruiker.")
-        print("🛑 Handmatig gestopt.")
+        print("🛑 Handmatig gestopt.", flush=True)
     except Exception as e:
         logging.error(f"Fout opgetreden: {e}")
-        print(f"⚠️  Fout: {e}")
+        print(f"⚠️  Fout: {e}", flush=True)
     finally:
         spark.stop()
         logging.info("Spark sessie afgesloten.")
-        print("🏁 Spark afgesloten.")
+        print("🏁 Spark afgesloten.", flush=True)
 
         try:
             response = upload_to_drive(drive_service, LOG_FILENAME, LOGS_FOLDER_ID)
             logging.info("Logbestand geüpload naar Drive.")
-            print(f" Logbestand geüpload naar Drive (ID: {response.get('id')})")
+            print(f" Logbestand geüpload naar Drive (ID: {response.get('id')})", flush=True)
         except Exception as e:
-            print("⚠️  Upload logbestand naar Drive mislukt.")
+            print("⚠️  Upload logbestand naar Drive mislukt.", flush=True)
             logging.error(f"Fout bij uploaden logbestand: {e}")
 
 
