@@ -79,7 +79,7 @@ def main():
     seen_files = set()
     start_time = time.time()
 
-    print("🚀 Starten met controleren van stemmenbestanden voor 2 minuten (Ctrl+C om te stoppen)...")
+    print(" Starten met controleren van stemmenbestanden voor 2 minuten (Ctrl+C om te stoppen)...")
 
     try:
         while time.time() - start_time < TOTAL_RUNTIME:
@@ -87,23 +87,23 @@ def main():
 
             if new_files:
                 for filename, file_id in new_files:
-                    print(f"⬇️ Nieuw bestand gevonden: {filename}")
+                    print(f" Nieuw bestand gevonden: {filename}")
                     download_file(drive_service, file_id, filename)
                     seen_files.add(filename)
 
-                    print("⚙️ Verwerken met Spark...")
+                    print(" Verwerken met Spark...")
                     result = process_votes(spark, filename)
 
                     output_filename = filename.replace("generated_votes", "reduced_votes").replace(".txt", ".json")
                     with open(output_filename, "w") as f:
                         json.dump(result, f, indent=4)
-                    print(f"💾 '{output_filename}' lokaal opgeslagen.")
+                    print(f" '{output_filename}' lokaal opgeslagen.")
 
                     remove_old_drive_file(drive_service, output_filename)
                     response = upload_to_drive(drive_service, output_filename)
-                    print(f"📤 Geüpload naar Drive (ID: {response.get('id')})")
+                    print(f" Geüpload naar Drive (ID: {response.get('id')})")
             else:
-                print("⏳ Geen nieuwe bestanden gevonden, opnieuw proberen...")
+                print(" Geen nieuwe bestanden gevonden, opnieuw proberen...")
 
             time.sleep(CHECK_INTERVAL)
 
